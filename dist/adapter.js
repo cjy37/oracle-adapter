@@ -29,7 +29,7 @@ var _lodash2 = _interopRequireDefault(_lodash);
 var createcount = 0;
 
 _oracledb2['default'].outFormat = _oracledb2['default'].OBJECT;
-
+//test
 var adapter = {
 
   connections: new Map(),
