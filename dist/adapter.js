@@ -7,6 +7,7 @@ Object.defineProperty(exports, '__esModule', {
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { 'default': obj }; }
 
 var _oracledb = require('oracledb');
+//_oracledb.fetchAsString = [ _oracledb.NUMBER ]; 
 
 var _oracledb2 = _interopRequireDefault(_oracledb);
 
@@ -29,7 +30,7 @@ var _lodash2 = _interopRequireDefault(_lodash);
 var createcount = 0;
 
 _oracledb2['default'].outFormat = _oracledb2['default'].OBJECT;
-//test
+
 var adapter = {
 
   connections: new Map(),
@@ -202,7 +203,13 @@ var adapter = {
     if (!_lodash2['default'].isArray(queries)) {
       queries = [queries];
     }
-    var cxn = this.connections.get(connectionName);
+    var cxn = null;
+    if(this.connections[connectionName]){
+      cxn = this.connections[connectionName]["_adapter"].connections.get(connectionName)
+    }else{
+      cxn = this.connections.get(connectionName);
+    }
+    
     if (cxn.pool._enableStats) {
       console.log(cxn.pool._logStats());
     }
@@ -274,6 +281,8 @@ var adapter = {
     cb();
   },
 
+
+
   // Add a new row to the table
   create: function create(connectionName, table, data, cb) {
     var connectionObject = this.connections.get(connectionName);
@@ -330,6 +339,228 @@ var adapter = {
     });
   },
 
+
+  query: function query(connectionName, collectionName, query, data, cb, connection) {
+
+    if (_.isFunction(data)) {
+      cb = data;
+      data = null;
+    }
+
+   
+    if(data != null && _.isArray(data) && data.length > 0){
+      data = adapter.formatParam(data);
+      let sqls = query.split('?');
+      if(sqls && sqls.length-1 ===data.length){
+        query ='';
+        for(let i=0;i<sqls.length;i++){
+
+          query += sqls[i]+data[i];
+        }
+      }
+    }
+    console.debug("Query查询语句："+query);
+    query =  adapter.formatSql(query);
+    adapter.executeQuery(connectionName, {
+      sql: query,
+      params: null//query.values[0]
+    }, function (err, results) {
+      if (err) return cb(err);
+      cb(null, results && results.rows);
+    });
+  },
+
+  formatParam:function(data){
+
+    if(data != null && _.isArray(data) && data.length > 0){
+      for(let i =0;i<data.length;i++){
+        let value = data[i];
+        if(_.isString(value)){
+          let timeReg = /[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}/g;
+          //console.log(newSql)
+          let macths = value.match(timeReg);
+          console.log(JSON.stringify(macths))
+          if(macths !=null && macths.length >0){
+              _.forEach(macths,function(m){
+                if(value.indexOf("'")<0){
+                  value = value.replace(m,"'"+m+"'");
+                }
+              
+              });
+            
+          }
+          else{
+            let timeReg = /[0-9]{4}-[0-9]{2}-[0-9]{2}/g;
+            let macths = value.match(timeReg);
+            console.log(JSON.stringify(macths))
+            if(macths !=null && macths.length >0){
+                _.forEach(macths,function(m){
+                  if(value.indexOf("'")<0){
+                    value = value.replace(m,"'"+m+"'");
+                  }
+                });
+              
+            }
+          }
+          data[i] = value;
+        }
+      }
+
+      
+    }
+
+    return data;
+  },
+
+  formatSql: function(sql){
+
+    var _ = require('lodash');
+
+//var sql ="select count(ani_num) count,DATE_FORMAT(create_date,'%Y-%m-%d') createDate from activity_news_info where create_date>='2018-05-16 00:00:00' and create_date<'2018-05-22 23:59:59' group by createDate";
+
+//转小写
+
+          sql = sql.toLowerCase();
+          sql = sql.replace(/date_format/g,"dateformat")
+          var sqls = sql.split(" ");
+
+          var keywords=['select','count','from','where','group','by','desc','and'];
+
+          var newSql ='';
+          _.forEach(sqls,function(item){
+
+              if(_.indexOf(keywords,item)>-1){
+                  newSql += item;
+              }else{
+                  if(item.indexOf('_')>-1){
+                      let items = item.split('_');
+                      let itemStr ='';
+                      for(let i=0;i<items.length;i++){
+                          let subItem = items[i];
+                        //  console.log("subItem:"+subItem)
+                          let newSubItem ='';
+                          let index = subItem.lastIndexOf('(');
+                          if(index>-1){
+                                newSubItem =subItem.substring(0,index+1)+'"'+subItem.substring(index+1)
+                          }
+                          else if((index = subItem.lastIndexOf('.'))>-1){
+                            
+                                  newSubItem =subItem.substring(0,index+1)+'"'+subItem.substring(index+1)
+                              }
+                          else if((index = subItem.indexOf(','))>-1){
+                                if(i==0){
+                                  newSubItem =subItem.substring(0,index)+',"'+subItem.substring(index+1)
+                                }else{
+                                  newSubItem =subItem.substring(0,index)+'",'+subItem.substring(index+1)
+                                }
+                                      }
+                          else if((index = subItem.indexOf('>'))>-1){
+                                                  newSubItem =subItem.substring(0,index)+'">'+subItem.substring(index+1)
+                                              }
+                          else if((index = subItem.indexOf('<'))>-1){
+                                                          newSubItem =subItem.substring(0,index)+'"<'+subItem.substring(index+1)
+                                                      }
+                          else if((index = subItem.indexOf('='))>-1){
+                                                                  newSubItem =subItem.substring(0,index)+'"='+subItem.substring(index+1)
+                                                              }                           
+                          else if((index = subItem.indexOf(')'))>-1){
+                                      newSubItem =subItem.substring(0,index)+'")'+subItem.substring(index+1)
+                                  }
+                          else if(i==0){
+                              newSubItem = '"'+subItem
+                            }
+                          else if(i==items.length-1){
+                              newSubItem = subItem+'"';
+                            }
+                          else{
+                                
+                              newSubItem = subItem;
+                            }  
+                          
+                          itemStr +=newSubItem+"_"
+                      };
+                      
+                      itemStr = itemStr.substring(0,itemStr.length-1);
+                      //console.log("itemStr:"+itemStr)
+                      newSql += itemStr;
+                  }else{
+                      newSql += item;
+                  }
+                
+              }
+              newSql  +=' ';
+
+              
+          });
+
+
+          newSql = newSql.replace(/dateformat/g,"to_char");
+          newSql = newSql.replace(/%y/g,"yyyy");
+          newSql = newSql.replace(/%m/g,"mm")
+          newSql = newSql.replace(/%d/g,"dd");
+
+          let timeReg = /'[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}'/g;
+          //console.log(newSql)
+          let macths = newSql.match(timeReg);
+          console.log(JSON.stringify(macths))
+          let strs='' //去重复字符串
+          if(macths !=null && macths.length >0){
+              _.forEach(macths,function(m){
+                  if(strs.indexOf(m)==-1){
+                      newSql = newSql.replace(new RegExp(m,"gm"),"to_date("+m+",'yyyy/mm/dd hh24:mi:ss')");
+                      strs+=m;
+                  }
+              });
+             
+          }
+          else{
+              let timeReg = /'[0-9]{4}-[0-9]{2}-[0-9]{2}'/g;
+              let macths = newSql.match(timeReg);
+              console.log(JSON.stringify(macths));
+              let strs='' //去重复字符串
+              if(macths !=null && macths.length >0){
+                  _.forEach(macths,function(m){
+                    if(strs.indexOf(m)==-1){
+                      newSql = newSql.replace(new RegExp(m,"gm"),"to_date("+m+",'yyyy/mm/dd')");
+                      strs+=m;
+                    }
+                   
+                  });
+                
+              }
+            }
+          //分页
+        let index = newSql.indexOf('limit');
+        if(index >-1){
+            let copySql = newSql.substring(0,index);
+            let pageInfo  = newSql.substring(index);
+            newSql = copySql.replace('select','SELECT ROWNUM AS LINE_NUMBER,');
+            let pageInfos  = pageInfo.split(" ");
+            let skip=0;
+            let limit=0;
+            _.forEach(pageInfos,function(item){
+            
+                if(item.indexOf(',')>-1){
+                    let infos = item.split(',');
+                    skip=parseInt(infos[0]);
+                    limit =parseInt(infos[1]);
+                }
+            
+            
+            });
+            if (limit && skip) {
+                newSql = 'SELECT * FROM (' + newSql + ') WHERE LINE_NUMBER > ' + skip + ' and LINE_NUMBER <= ' + (skip + limit);
+              } else if (limit) {
+                newSql = 'SELECT * FROM (' + newSql + ') WHERE LINE_NUMBER <= ' + limit;
+              } else if (skip) {
+                newSql = 'SELECT * FROM (' + newSql + ') WHERE LINE_NUMBER > ' + skip;
+              }
+        }
+          console.log('格式化后：'+newSql);
+
+          return newSql;
+  },
+
   find: function find(connectionName, collectionName, options, cb, connection) {
     var connectionObject = this.connections.get(connectionName);
     var collection = connectionObject.collections[collectionName];
@@ -350,6 +581,19 @@ var adapter = {
 
     var findQuery = query.query[0];
 
+    let querys = findQuery.split(',');
+    let sql ="";
+    for(let i = 0;i <querys.length;i++){
+      if(sql.indexOf(querys[i]) <0){
+        if(i!=0){
+          sql+=',';
+        }
+        sql+=querys[i];
+          }
+
+    }
+
+    findQuery = sql;
     if (limit && skip) {
       findQuery = 'SELECT * FROM (' + findQuery + ') WHERE LINE_NUMBER > ' + skip + ' and LINE_NUMBER <= ' + (skip + limit);
     } else if (limit) {
@@ -357,7 +601,7 @@ var adapter = {
     } else if (skip) {
       findQuery = 'SELECT * FROM (' + findQuery + ') WHERE LINE_NUMBER > ' + skip;
     }
-
+    console.debug('查询语句'+findQuery);
     this.executeQuery(connectionName, {
       sql: findQuery,
       params: query.values[0]
