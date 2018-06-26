@@ -360,7 +360,7 @@ var adapter = {
       }
     }
     console.debug("Query查询语句："+query);
-    query =  adapter.formatSql(query);
+    //query =  adapter.formatSql(query);
     adapter.executeQuery(connectionName, {
       sql: query,
       params: null//query.values[0]
